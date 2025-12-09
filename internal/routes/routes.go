@@ -13,12 +13,15 @@ import (
 func SetupRoutes(app *fiber.App) {
 	jwtSecret := []byte(os.Getenv("jwt.secret"))
 
+	auditRepo := repository.NewAuditRepository()
+	auditService := services.NewAuditService(auditRepo)
+
 	projectRepo := repository.NewProjectRepository()
-	projectService := services.NewProjectService(projectRepo)
+	projectService := services.NewProjectService(projectRepo, auditService)
 	projectController := controllers.NewProjectController(projectService)
 
 	secretRepo := repository.NewSecretRepository()
-	secretService := services.NewSecretService(secretRepo, projectRepo)
+	secretService := services.NewSecretService(secretRepo, projectRepo, auditService)
 	secretController := controllers.NewSecretController(secretService)
 
 	api := app.Group("/api")
