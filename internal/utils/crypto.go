@@ -16,10 +16,8 @@ var (
 	nonceSize int
 )
 
-func init() {
-	if err := initCipherFromEnv(); err != nil {
-		panic(fmt.Sprintf("cryptoutil initialization failed: %v", err))
-	}
+func Init() error {
+	return initCipherFromEnv()
 }
 
 func initCipherFromEnv() error {
