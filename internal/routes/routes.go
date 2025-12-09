@@ -17,6 +17,10 @@ func SetupRoutes(app *fiber.App) {
 	projectService := services.NewProjectService(projectRepo)
 	projectController := controllers.NewProjectController(projectService)
 
+	secretRepo := repository.NewSecretRepository()
+	secretService := services.NewSecretService(secretRepo, projectRepo)
+	secretController := controllers.NewSecretController(secretService)
+
 	api := app.Group("/api")
 
 	api.Post("/projects", middlewares.JWTAuth(jwtSecret), projectController.CreateProject)
@@ -24,4 +28,13 @@ func SetupRoutes(app *fiber.App) {
 	api.Get("/projects", middlewares.JWTAuth(jwtSecret), projectController.GetUserProjects)
 	api.Put("/projects/:id", middlewares.JWTAuth(jwtSecret), projectController.UpdateProject)
 	api.Delete("/projects/:id", middlewares.JWTAuth(jwtSecret), projectController.DeleteProject)
+
+	secured := api.Group("/projects/:projectId/secrets", middlewares.JWTAuth(jwtSecret))
+
+	secured.Post("/", secretController.CreateSecret)
+	secured.Get("/:secretId", secretController.GetSecret)
+	secured.Patch("/:secretId", secretController.UpdateSecret)
+	secured.Delete("/:secretId", secretController.DeleteSecret)
+	secured.Patch("/:secretId/revoke", secretController.RevokeSecret)
+
 }
