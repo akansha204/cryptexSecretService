@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/akansha204/cryptex-secretservice/internal/database"
 	"github.com/akansha204/cryptex-secretservice/internal/models"
@@ -26,6 +27,7 @@ func (sr *SecretRepository) GetSecretByID(ctx context.Context, secretID string) 
 		Model(&secret).
 		Column("*").
 		Where("secret_id = ?", secretID).
+		Where("deleted_at IS NULL").
 		Scan(ctx)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -38,14 +40,16 @@ func (sr *SecretRepository) GetSecretByID(ctx context.Context, secretID string) 
 func (sr *SecretRepository) UpdateSecret(ctx context.Context, secret *models.Secret) error {
 	_, err := database.DB.NewUpdate().
 		Model(secret).
-		Column("s_name", "s_value", "secret_version", "updated_at", "revoked", "ttl", "expires_at").
+		Column("s_name", "s_value", "secret_version", "updated_at", "revoked", "ttl", "expires_at", "deleted_at").
 		Where("secret_id = ?", secret.ID).
+		Where("deleted_at IS NULL").
 		Exec(ctx)
 	return err
 }
-func (sr *SecretRepository) DeleteSecret(ctx context.Context, secretID string) error {
-	_, err := database.DB.NewDelete().
+func (sr *SecretRepository) SoftDeleteSecret(ctx context.Context, secretID string) error {
+	_, err := database.DB.NewUpdate().
 		Model(&models.Secret{}).
+		Set("deleted_at = ?", time.Now()).
 		Where("secret_id = ?", secretID).
 		Exec(ctx)
 	return err
@@ -58,6 +62,7 @@ func (sr *SecretRepository) GetLatestVersion(ctx context.Context, projectID, nam
 		Column("*").
 		Where("project_id = ?", projectID).
 		Where("s_name = ?", name).
+		Where("deleted_at IS NULL").
 		Order("secret_version DESC").
 		Limit(1).
 		Scan(ctx)
