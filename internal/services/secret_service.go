@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/akansha204/cryptex-secretservice/internal/models"
@@ -12,14 +13,16 @@ import (
 )
 
 type SecretService struct {
-	secretRepo  *repository.SecretRepository
-	projectRepo *repository.ProjectRepository
+	secretRepo   *repository.SecretRepository
+	projectRepo  *repository.ProjectRepository
+	AuditService *AuditService
 }
 
-func NewSecretService(secretRepo *repository.SecretRepository, projectRepo *repository.ProjectRepository) *SecretService {
+func NewSecretService(secretRepo *repository.SecretRepository, projectRepo *repository.ProjectRepository, auditService *AuditService) *SecretService {
 	return &SecretService{
-		secretRepo:  secretRepo,
-		projectRepo: projectRepo,
+		secretRepo:   secretRepo,
+		projectRepo:  projectRepo,
+		AuditService: auditService,
 	}
 }
 
@@ -32,9 +35,13 @@ func (s *SecretService) CreateSecret(
 	ttlDays *int,
 ) (*models.Secret, error) {
 
+	userUUID := uuid.MustParse(userID)
 	project, err := s.projectRepo.GetProjectByID(ctx, projectID)
 	if err != nil {
 		return nil, err
+	}
+	if project.DeletedAt != nil {
+		return nil, errors.New("project not available")
 	}
 	if project == nil || project.UserID.String() != userID {
 		return nil, errors.New("unauthorized: project does not belong to this user")
@@ -84,6 +91,14 @@ func (s *SecretService) CreateSecret(
 	if err != nil {
 		return nil, err
 	}
+	s.AuditService.Log(
+		ctx,
+		&userUUID,
+		&secret.ProjectID,
+		&secret.ID,
+		"CREATE_SECRET",
+		"Secret created with version "+strconv.Itoa(newVersion),
+	)
 
 	return secret, nil
 }
@@ -96,18 +111,18 @@ func (s *SecretService) GetSecretByID(
 ) (*models.Secret, string, error) {
 
 	project, err := s.projectRepo.GetProjectByID(ctx, projectID)
-	if err != nil {
-		return nil, "", err
+	if err != nil || project == nil || project.DeletedAt != nil {
+		return nil, "", errors.New("project not found")
 	}
-	if project == nil || project.UserID.String() != userID {
+	if project.UserID.String() != userID {
 		return nil, "", errors.New("unauthorized")
 	}
-
 	secret, err := s.secretRepo.GetSecretByID(ctx, secretID)
 	if err != nil {
 		return nil, "", err
 	}
-	if secret == nil {
+
+	if secret == nil || secret.DeletedAt != nil {
 		return nil, "", errors.New("secret not found")
 	}
 
@@ -136,6 +151,7 @@ func (s *SecretService) UpdateSecret(
 	newValue *string,
 	ttlDays *int,
 ) (*models.Secret, error) {
+	userUUID := uuid.MustParse(userID)
 
 	project, err := s.projectRepo.GetProjectByID(ctx, projectID)
 	if err != nil || project == nil || project.UserID.String() != userID {
@@ -143,7 +159,7 @@ func (s *SecretService) UpdateSecret(
 	}
 
 	existing, err := s.secretRepo.GetSecretByID(ctx, secretID)
-	if err != nil || existing == nil {
+	if err != nil || existing == nil || existing.DeletedAt != nil {
 		return nil, errors.New("secret not found")
 	}
 	if existing.Revoked {
@@ -180,6 +196,15 @@ func (s *SecretService) UpdateSecret(
 		return nil, err
 	}
 
+	s.AuditService.Log(
+		ctx,
+		&userUUID,
+		&existing.ProjectID,
+		&existing.ID,
+		"UPDATE_SECRET",
+		"Secret updated (version "+strconv.Itoa(existing.Version)+")",
+	)
+
 	return existing, nil
 }
 
@@ -190,12 +215,30 @@ func (s *SecretService) DeleteSecret(
 	secretID string,
 ) error {
 
+	userUUID := uuid.MustParse(userID)
 	project, err := s.projectRepo.GetProjectByID(ctx, projectID)
-	if err != nil || project == nil || project.UserID.String() != userID {
+	if err != nil || project == nil || project.DeletedAt != nil {
+		return errors.New("unauthorized")
+	}
+	if project.UserID.String() != userID {
 		return errors.New("unauthorized")
 	}
 
-	return s.secretRepo.DeleteSecret(ctx, secretID)
+	secret, err := s.secretRepo.GetSecretByID(ctx, secretID)
+	if err != nil || secret == nil || secret.DeletedAt != nil {
+		return errors.New("secret not found")
+	}
+	s.AuditService.Log(
+		ctx,
+		&userUUID,
+		&secret.ProjectID,
+		&secret.ID,
+		"DELETE_SECRET",
+		"Secret deleted",
+	)
+
+	return s.secretRepo.SoftDeleteSecret(ctx, secretID)
+
 }
 
 func (s *SecretService) RevokeSecret(
@@ -204,6 +247,8 @@ func (s *SecretService) RevokeSecret(
 	projectID string,
 	secretID string,
 ) error {
+
+	userUUID := uuid.MustParse(userID)
 
 	project, err := s.projectRepo.GetProjectByID(ctx, projectID)
 	if err != nil || project == nil || project.UserID.String() != userID {
@@ -214,9 +259,26 @@ func (s *SecretService) RevokeSecret(
 	if err != nil || secret == nil {
 		return errors.New("secret not found")
 	}
+	if secret.DeletedAt != nil {
+		return errors.New("secret not found")
+	}
 
 	secret.Revoked = true
 	secret.UpdatedAt = time.Now()
 
-	return s.secretRepo.UpdateSecret(ctx, secret)
+	err = s.secretRepo.UpdateSecret(ctx, secret)
+	if err != nil {
+		return err
+	}
+
+	s.AuditService.Log(
+		ctx,
+		&userUUID,
+		&secret.ProjectID,
+		&secret.ID,
+		"REVOKE_SECRET",
+		"Secret revoked",
+	)
+
+	return nil
 }
