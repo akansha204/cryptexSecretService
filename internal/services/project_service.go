@@ -10,17 +10,23 @@ import (
 )
 
 type ProjectService struct {
-	repo *repository.ProjectRepository
+	repo         *repository.ProjectRepository
+	AuditService *AuditService
 }
 
-func NewProjectService(repo *repository.ProjectRepository) *ProjectService {
-	return &ProjectService{repo: repo}
+func NewProjectService(repo *repository.ProjectRepository, auditService *AuditService) *ProjectService {
+	return &ProjectService{
+		repo:         repo,
+		AuditService: auditService,
+	}
 }
 
 func (s *ProjectService) CreateProject(ctx context.Context, userID string, name string, description *string) (*models.Project, error) {
 
+	userUUID := uuid.MustParse(userID)
+
 	project := &models.Project{
-		UserID:      uuid.MustParse(userID),
+		UserID:      userUUID,
 		Name:        name,
 		Description: description,
 	}
@@ -30,10 +36,26 @@ func (s *ProjectService) CreateProject(ctx context.Context, userID string, name 
 		return nil, err
 	}
 
+	s.AuditService.Log(
+		ctx,
+		&userUUID,
+		&project.ID,
+		nil,
+		"CREATE_PROJECT",
+		"Project created successfully",
+	)
+
 	return project, nil
 }
 func (s *ProjectService) GetProjectByID(ctx context.Context, projectID string) (*models.Project, error) {
-	return s.repo.GetProjectByID(ctx, projectID)
+	project, err := s.repo.GetProjectByID(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if project == nil || project.DeletedAt != nil {
+		return nil, errors.New("project not found")
+	}
+	return project, nil
 
 }
 func (s *ProjectService) GetProjectsByUser(ctx context.Context, userID string) ([]models.Project, error) {
@@ -41,12 +63,13 @@ func (s *ProjectService) GetProjectsByUser(ctx context.Context, userID string) (
 }
 
 func (s *ProjectService) UpdateProject(ctx context.Context, projectID string, userID string, name string, description *string) (*models.Project, error) {
+	userUUID := uuid.MustParse(userID)
 
 	project, err := s.repo.GetProjectByID(ctx, projectID)
-	if err != nil {
-		return nil, err
+	if err != nil || project == nil {
+		return nil, errors.New("project not found")
 	}
-	if project == nil {
+	if project.DeletedAt != nil {
 		return nil, errors.New("project not found")
 	}
 	if project.UserID.String() != userID {
@@ -61,21 +84,39 @@ func (s *ProjectService) UpdateProject(ctx context.Context, projectID string, us
 		return nil, err
 	}
 
+	s.AuditService.Log(
+		ctx,
+		&userUUID,
+		&project.ID,
+		nil,
+		"UPDATE_PROJECT",
+		"Project details updated",
+	)
 	return project, nil
 }
 
 func (s *ProjectService) DeleteProject(ctx context.Context, projectID string, userID string) error {
+	userUUID := uuid.MustParse(userID)
 
 	project, err := s.repo.GetProjectByID(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	if project == nil {
+	if err != nil || project == nil {
 		return errors.New("project not found")
 	}
+	if project.DeletedAt != nil {
+		return errors.New("project already deleted")
+	}
+
 	if project.UserID.String() != userID {
 		return errors.New("forbidden: not your project")
 	}
+	s.AuditService.Log(
+		ctx,
+		&userUUID,
+		&project.ID,
+		nil,
+		"DELETE_PROJECT",
+		"Project deleted successfully",
+	)
 
-	return s.repo.DeleteProject(ctx, projectID)
+	return s.repo.SoftDeleteProject(ctx, projectID)
 }
