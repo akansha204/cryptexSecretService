@@ -21,4 +21,5 @@ type Secret struct {
 	CreatedAt time.Time  `bun:"created_at,default:current_timestamp"`
 	UpdatedAt time.Time  `bun:"updated_at,default:current_timestamp"`
 	ExpiresAt *time.Time `bun:"expires_at,nullzero"` //obtained from TTL and createdAt
+	DeletedAt *time.Time `bun:"deleted_at,nullzero"`
 }
