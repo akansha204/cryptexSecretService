@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"time"
 
 	"github.com/akansha204/cryptex-secretservice/internal/database"
 	"github.com/akansha204/cryptex-secretservice/internal/models"
@@ -25,8 +27,13 @@ func (pr *ProjectRepository) GetProjectByID(ctx context.Context, projectID strin
 	err := database.DB.NewSelect().
 		Model(&project).
 		Where("project_id = ?", projectID).
+		Where("deleted_at IS NULL").
 		Scan(ctx)
+
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &project, nil
@@ -37,6 +44,7 @@ func (pr *ProjectRepository) GetProjectsByUserID(ctx context.Context, userID str
 	err := database.DB.NewSelect().
 		Model(&projects).
 		Where("user_id = ?", userID).
+		Where("deleted_at IS NULL").
 		Order("created_at DESC").
 		Scan(ctx)
 
@@ -50,12 +58,14 @@ func (pr *ProjectRepository) UpdateProject(ctx context.Context, project *models.
 	_, err := database.DB.NewUpdate().
 		Model(project).
 		Where("project_id = ?", project.ID).
+		Where("deleted_at IS NULL").
 		Exec(ctx)
 	return err
 }
-func (pr *ProjectRepository) DeleteProject(ctx context.Context, projectID string) error {
-	_, err := database.DB.NewDelete().
+func (pr *ProjectRepository) SoftDeleteProject(ctx context.Context, projectID string) error {
+	_, err := database.DB.NewUpdate().
 		Model(&models.Project{}).
+		Set("deleted_at = ?", time.Now()).
 		Where("project_id = ?", projectID).
 		Exec(ctx)
 	return err
