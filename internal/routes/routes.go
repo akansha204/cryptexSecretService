@@ -1,8 +1,6 @@
 package routes
 
 import (
-	"os"
-
 	"github.com/akansha204/cryptex-secretservice/internal/controllers"
 	"github.com/akansha204/cryptex-secretservice/internal/middlewares"
 	"github.com/akansha204/cryptex-secretservice/internal/repository"
@@ -11,7 +9,6 @@ import (
 )
 
 func SetupRoutes(app *fiber.App) {
-	jwtSecret := []byte(os.Getenv("jwt.secret"))
 
 	auditRepo := repository.NewAuditRepository()
 	auditService := services.NewAuditService(auditRepo)
@@ -26,13 +23,13 @@ func SetupRoutes(app *fiber.App) {
 
 	api := app.Group("/api")
 
-	api.Post("/projects", middlewares.JWTAuth(jwtSecret), projectController.CreateProject)
-	api.Get("/projects/:id", middlewares.JWTAuth(jwtSecret), projectController.GetProject)
-	api.Get("/projects", middlewares.JWTAuth(jwtSecret), projectController.GetUserProjects)
-	api.Put("/projects/:id", middlewares.JWTAuth(jwtSecret), projectController.UpdateProject)
-	api.Delete("/projects/:id", middlewares.JWTAuth(jwtSecret), projectController.DeleteProject)
+	api.Post("/projects", middlewares.GatewayAuth(), projectController.CreateProject)
+	api.Get("/projects/:id", middlewares.GatewayAuth(), projectController.GetProject)
+	api.Get("/projects", middlewares.GatewayAuth(), projectController.GetUserProjects)
+	api.Put("/projects/:id", middlewares.GatewayAuth(), projectController.UpdateProject)
+	api.Delete("/projects/:id", middlewares.GatewayAuth(), projectController.DeleteProject)
 
-	secured := api.Group("/projects/:projectId/secrets", middlewares.JWTAuth(jwtSecret))
+	secured := api.Group("/projects/:projectId/secrets", middlewares.GatewayAuth())
 
 	secured.Post("/", secretController.CreateSecret)
 	secured.Get("/:secretId", secretController.GetSecret)
